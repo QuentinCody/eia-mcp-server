@@ -3,7 +3,7 @@ import { eiaFetch } from "./http";
 
 let envApiKey: string | undefined;
 
-export function setEiaApiKey(key: string | undefined) {
+export function setEiaApiKey(key: string | undefined): void {
     envApiKey = key;
 }
 

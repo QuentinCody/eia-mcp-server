@@ -14,7 +14,7 @@ interface EiaEnv {
 }
 
 export class MyMCP extends McpAgent {
-    server: any = new McpServer({
+    server = new McpServer({
         name: "eia",
         version: "0.1.0",
     });

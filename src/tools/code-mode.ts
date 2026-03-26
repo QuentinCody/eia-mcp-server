@@ -10,7 +10,7 @@ interface CodeModeEnv {
     EIA_API_KEY?: string;
 }
 
-export function registerCodeMode(server: McpServer, env: CodeModeEnv) {
+export function registerCodeMode(server: McpServer, env: CodeModeEnv): void {
     if (env.EIA_API_KEY) {
         setEiaApiKey(env.EIA_API_KEY);
     }

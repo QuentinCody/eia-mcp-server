@@ -6,7 +6,7 @@ interface QueryEnv {
     EIA_DATA_DO?: unknown;
 }
 
-export function registerQueryData(server: McpServer, env?: QueryEnv) {
+export function registerQueryData(server: McpServer, env?: QueryEnv): void {
     const handler = createQueryDataHandler("EIA_DATA_DO", "eia");
 
     server.registerTool(
