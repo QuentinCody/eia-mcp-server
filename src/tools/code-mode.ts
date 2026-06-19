@@ -25,6 +25,8 @@ export function registerCodeMode(server: McpServer, env: CodeModeEnv): void {
 
     const executeTool = createExecuteTool({
         prefix: "eia",
+        // Verifiable provenance: eia_execute results carry a _meta.citation.
+        source: { id: "eia", name: "U.S. Energy Information Administration", url: "https://www.eia.gov", license: "U.S. Public Domain" },
         catalog: eiaCatalog,
         apiFetch,
         doNamespace: env.EIA_DATA_DO,
