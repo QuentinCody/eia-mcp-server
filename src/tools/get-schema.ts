@@ -1,38 +1,35 @@
 import type { McpServer } from "@bio-mcp/shared/mcp";
 import { z } from "zod";
 import { createGetSchemaHandler } from "@bio-mcp/shared/staging/utils";
+import { eiaResponse } from "../lib/tool-result";
 
 interface SchemaEnv {
-    EIA_DATA_DO?: unknown;
+  EIA_DATA_DO?: unknown;
 }
 
 export function registerGetSchema(server: McpServer, env?: SchemaEnv): void {
-    const handler = createGetSchemaHandler("EIA_DATA_DO", "eia");
+  const handler = createGetSchemaHandler("EIA_DATA_DO", "eia");
 
-    server.registerTool(
-        "eia_get_schema",
-        {
-            title: "Get Staged Data Schema",
-            description:
-                "Get schema information for staged EIA data. Shows table structures and row counts. " +
-                "If called without a data_access_id, lists all staged datasets available in this session.",
-            inputSchema: {
-                data_access_id: z
-                    .string()
-                    .min(1)
-                    .optional()
-                    .describe(
-                        "Data access ID for the staged dataset. If omitted, lists all staged datasets in this session.",
-                    ),
-            },
-        },
-        async (args, extra) => {
-            const runtimeEnv = env || (extra as { env?: SchemaEnv })?.env || {};
-            return handler(
-                args as Record<string, unknown>,
-                runtimeEnv as Record<string, unknown>,
-                (extra as Record<string, unknown>),
-            );
-        },
-    );
+  for (const name of ["eia_get_schema", "mcp_eia_get_schema"]) server.registerTool(
+    name,
+    {
+      title: "Get Staged EIA Data Schema",
+      description:
+        "Get schema information for staged EIA data. Shows table structures and row counts. " +
+        "If called without a data_access_id, lists all staged datasets available in this session.",
+      inputSchema: {
+        data_access_id: z.string().min(1).optional().describe(
+          "Data access ID for the staged dataset. If omitted, lists all staged datasets in this session.",
+        ),
+      },
+    },
+    async (args, extra) => {
+      const runtimeEnv = env || (extra as { env?: SchemaEnv })?.env || {};
+      return eiaResponse(() => handler(
+        args as Record<string, unknown>,
+        runtimeEnv as Record<string, unknown>,
+        (extra as Record<string, unknown>),
+      ), runtimeEnv, name, extra, args);
+    },
+  );
 }

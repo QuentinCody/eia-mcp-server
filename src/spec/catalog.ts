@@ -1,15 +1,16 @@
 import type { ApiCatalog } from "@bio-mcp/shared/codemode/catalog";
 
+import { discoveryEndpoints, discoveryNotes, discoveryWorkflows } from "./discovery";
+
 export const eiaCatalog: ApiCatalog = {
     name: "EIA (Energy Information Administration)",
     baseUrl: "https://api.eia.gov",
     version: "2.0",
     auth: "required",
-    endpointCount: 17,
-    notes:
-        "- All endpoints follow /v2/{route}/data pattern with api_key param\n" +
+    endpointCount: 20,
+    notes: discoveryNotes +
         "- Common params: frequency (weekly|monthly|quarterly|annual),\n" +
-        "  data[]=value (which columns), start/end (date range),\n" +
+        "  data[] selects columns from metadata (not universally value); start/end select periods.\n" +
         "  sort[0][column]=period, sort[0][direction]=desc,\n" +
         "  length (max rows, default 5000), offset (pagination)\n" +
         "- facets[series][] filters by series ID\n" +
@@ -17,7 +18,9 @@ export const eiaCatalog: ApiCatalog = {
         "- Market-moving: Weekly Petroleum (Wed 10:30am ET), Weekly Nat Gas Storage (Thu 10:30am ET)\n" +
         "- STEO = Short-Term Energy Outlook (monthly forecasts)\n" +
         "- AEO = Annual Energy Outlook (long-term projections)",
+    workflows: discoveryWorkflows,
     endpoints: [
+        ...discoveryEndpoints,
         // --- Petroleum ---
         {
             method: "GET",
@@ -354,7 +357,7 @@ export const eiaCatalog: ApiCatalog = {
                     required: false,
                     description: "monthly, annual",
                 },
-                { name: "data[]", type: "string", required: false, description: "value" },
+                { name: "data[]", type: "string", required: false, description: "price, revenue, sales, customers (discover current units in metadata)", default: "price" },
                 {
                     name: "facets[stateid][]",
                     type: "string",

@@ -1,42 +1,36 @@
 import type { McpServer } from "@bio-mcp/shared/mcp";
 import { z } from "zod";
 import { createQueryDataHandler } from "@bio-mcp/shared/staging/utils";
+import { eiaResponse } from "../lib/tool-result";
 
 interface QueryEnv {
-    EIA_DATA_DO?: unknown;
+  EIA_DATA_DO?: unknown;
 }
 
 export function registerQueryData(server: McpServer, env?: QueryEnv): void {
-    const handler = createQueryDataHandler("EIA_DATA_DO", "eia");
+  const handler = createQueryDataHandler("EIA_DATA_DO", "eia");
 
-    server.registerTool(
-        "eia_query_data",
-        {
-            title: "Query Staged EIA Data",
-            description:
-                "Query staged EIA energy data using SQL. Use this when responses are too large and have been staged with a data_access_id.",
-            inputSchema: {
-                data_access_id: z
-                    .string()
-                    .min(1)
-                    .describe("Data access ID for the staged dataset"),
-                sql: z
-                    .string()
-                    .min(1)
-                    .describe("SQL query to execute against the staged data"),
-                limit: z
-                    .number()
-                    .int()
-                    .positive()
-                    .max(10000)
-                    .default(100)
-                    .optional()
-                    .describe("Maximum number of rows to return (default: 100)"),
-            },
-        },
-        async (args, extra) => {
-            const runtimeEnv = env || (extra as { env?: QueryEnv })?.env || {};
-            return handler(args as Record<string, unknown>, runtimeEnv as Record<string, unknown>);
-        },
-    );
+  for (const name of ["eia_query_data", "mcp_eia_query_data"]) server.registerTool(
+    name,
+    {
+      title: "Query Staged EIA Data",
+      description:
+        "Query staged EIA data using SQL. Use this when responses are too large and have been staged with a data_access_id.",
+      inputSchema: {
+        data_access_id: z.string().min(1).describe("Data access ID for the staged dataset"),
+        sql: z.string().min(1).describe("SQL query to execute against the staged data"),
+        limit: z
+          .number()
+          .int()
+          .positive()
+          .max(10_000)
+          .optional()
+          .describe("Maximum number of rows to return (default: 100)"),
+      },
+    },
+    async (args, extra) => {
+      const runtimeEnv = env || (extra as { env?: QueryEnv })?.env || {};
+      return eiaResponse(() => handler(args as Record<string, unknown>, runtimeEnv as Record<string, unknown>), runtimeEnv, name, extra, args);
+    },
+  );
 }

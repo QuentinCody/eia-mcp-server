@@ -38,6 +38,10 @@ export default {
             return buildHealthResponse("eia");
         }
 
+        if (url.pathname === "/readyz") {
+            return MyMCP.readiness(env, "eia");
+        }
+
         if (url.pathname === "/mcp") {
             return MyMCP.serve("/mcp").fetch(request, env, ctx);
         }

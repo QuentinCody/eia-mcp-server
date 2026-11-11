@@ -1,99 +1,65 @@
 import { RestStagingDO } from "@bio-mcp/shared/staging/rest-staging-do";
 import type { SchemaHints } from "@bio-mcp/shared/staging/schema-inference";
 
+const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
+function unwrap(value: unknown): unknown {
+  return record(value) && Array.isArray(value.content) && record(value.structuredContent) && "data" in value.structuredContent
+    ? value.structuredContent.data : value;
+}
+function source(value: unknown) {
+  const data = unwrap(value);
+  const native = record(data) && record(data.data) && record(data.data.response) ? data.data : data;
+  if (!record(native) || !record(native.response)) return;
+  const response = native.response;
+  let collection: string | undefined;
+  let table = "eia_metadata";
+  if (Array.isArray(response.data)) {
+    collection = "data"; table = "eia_data";
+    const sample = record(response.data[0]) ? response.data[0] : {};
+    const description = String(sample["series-description"] ?? "").toLowerCase();
+    if (sample.sectorid || sample.fuelTypeId || description.includes("electric")) table = "electricity_data";
+    else if (String(sample.process ?? "").toLowerCase().includes("gas") || description.includes("natural gas")) table = "natural_gas_data";
+    else if (sample.duoarea || description.includes("petroleum")) table = "petroleum_data";
+  } else if (Array.isArray(response.routes)) { collection = "routes"; table = "eia_routes"; }
+  else if (Array.isArray(response.facets) && !response.frequency && !response.data) { collection = "facets"; table = "eia_facets"; }
+  return {native, response, table, collection, rows: collection ? response[collection] as unknown[] : [response]};
+}
+
+/** Keep complete payloads while projecting ordered native records for SQL. */
 export class EiaDataDO extends RestStagingDO {
-    /**
-     * Intercept /process to unwrap EIA's nested response envelope.
-     * EIA v2 returns { warnings: [...], response: { total, data: [...] } }.
-     * The base class's detectArrays() would find `warnings` first and stage that
-     * instead of the actual data array. We extract `response.data` and re-POST it.
-     */
-    async fetch(request: Request): Promise<Response> {
-        const url = new URL(request.url);
-
-        if (url.pathname === "/process" && request.method === "POST") {
-            const raw = await request.json();
-            const json = (raw !== null && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-            const data = (json.data ?? json) as Record<string, unknown>;
-
-            // Unwrap EIA envelope: { response: { data: [...] } } → just the data array
-            if (data.response && typeof data.response === "object") {
-                const resp = data.response as Record<string, unknown>;
-                if (resp.data && Array.isArray(resp.data) && resp.data.length > 0) {
-                    const reRequest = new Request(request.url, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ data: resp.data }),
-                    });
-                    return super.fetch(reRequest);
-                }
-            }
-
-            // Fallback: pass through as-is
-            const reRequest = new Request(request.url, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(json),
-            });
-            return super.fetch(reRequest);
-        }
-
-        return super.fetch(request);
+  protected getTabularData(value: unknown): unknown {
+    const data = unwrap(value);
+    if (record(data) && typeof data.sql === "string" && Array.isArray(data.rows)) {
+      return {query_rows: data.rows.map((native, row_index) => ({row_index, native_json: JSON.stringify(native)}))};
     }
+    const found = source(data);
+    if (!found) return data;
+    const names = new Map(["_rowid", "mcp_source_index", "mcp_native_json"].map(name => [name, name]));
+    const rows = found.rows.map((native, mcp_source_index) => {
+      const row: Record<string, unknown> = {mcp_source_index, mcp_native_json: JSON.stringify(native)};
+      for (const [key, item] of Object.entries(record(native) ? native : {})) {
+        const lower = key.toLowerCase();
+        if (item !== null && typeof item === "object" || ["_rowid", "mcp_source_index", "mcp_native_json"].includes(lower)) continue;
+        if (names.has(lower) && names.get(lower) !== key) continue;
+        names.set(lower, key); row[key] = item;
+      }
+      return row;
+    });
+    const controls = {...found.response};
+    if (found.collection) delete controls[found.collection];
+    const {response: _response, ...envelope} = found.native;
+    return {[found.table]: rows, eia_response: [{response_index: 0, collection: found.collection ?? null,
+      native_json: JSON.stringify({...envelope, response: controls})}]};
+  }
 
-    protected getSchemaHints(data: unknown): SchemaHints | undefined {
-        if (!data || typeof data !== "object") return undefined;
-
-        // After unwrapping, data is the array itself or wrapped in { data: [...] }
-        const arr = Array.isArray(data) ? data : null;
-        const items = arr ?? (data as Record<string, unknown>);
-
-        // Check if it's an array of EIA records
-        const sample = (Array.isArray(items) ? items[0] : null) as Record<string, unknown> | null;
-        if (!sample) return undefined;
-
-        // Petroleum data
-        if (
-            sample.duoarea ||
-            sample["series-description"]?.toString().toLowerCase().includes("petroleum")
-        ) {
-            return {
-                tableName: "petroleum_data",
-                indexes: ["period", "duoarea", "series"],
-            };
-        }
-
-        // Natural gas
-        if (
-            sample.process?.toString().toLowerCase().includes("gas") ||
-            sample["series-description"]?.toString().toLowerCase().includes("natural gas")
-        ) {
-            return {
-                tableName: "natural_gas_data",
-                indexes: ["period", "duoarea", "series"],
-            };
-        }
-
-        // Electricity
-        if (
-            sample.sectorid ||
-            sample.fuelTypeId ||
-            sample["series-description"]?.toString().toLowerCase().includes("electric")
-        ) {
-            return {
-                tableName: "electricity_data",
-                indexes: ["period", "stateId", "sectorid"],
-            };
-        }
-
-        // Generic data with period
-        if (sample.period) {
-            return {
-                tableName: "eia_data",
-                indexes: ["period", "series"],
-            };
-        }
-
-        return undefined;
+  protected getSchemaHints(value: unknown): SchemaHints | undefined {
+    const found = source(value);
+    if (!found) return undefined;
+    const columnTypes: Record<string, string> = {mcp_native_json: "TEXT", native_json: "TEXT", collection: "TEXT"};
+    for (const row of found.rows) if (record(row)) for (const [key, item] of Object.entries(row)) {
+      if (typeof item === "string") columnTypes[key] = "TEXT";
     }
+    columnTypes.mcp_source_index = "INTEGER";
+    return {columnTypes};
+  }
 }
